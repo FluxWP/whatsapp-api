@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Flux WPAPI</title>
+<style>
+:root{--bg:#f4f6f3;--card:#fff;--ink:#17201a;--mute:#5d6b62;--line:#dfe5e0;--brand:#1f7a3f;--brand-ink:#fff;--soft:#e8f3ec;--ok:#1f7a3f;--warn:#a86300;--bad:#b42318;--r:12px}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1411;--card:#171e19;--ink:#e6ede8;--mute:#93a399;--line:#26302a;--brand:#3fae66;--brand-ink:#08130c;--soft:#1c2b21;--ok:#4cc078;--warn:#e0a03a;--bad:#f07167}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:2}
+header .logo{width:30px;height:30px;border-radius:8px;background:var(--brand);display:grid;place-items:center;color:var(--brand-ink)}
+header h1{font-size:16px;margin:0;font-weight:650}
+header .sp{flex:1}
+main{max-width:980px;margin:0 auto;padding:20px 16px 60px;display:grid;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.card h2{font-size:15px;margin:0 0 12px;font-weight:650;display:flex;align-items:center;gap:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kv{background:var(--bg);border-radius:10px;padding:10px 12px}
+.kv b{display:block;font-size:12px;color:var(--mute);font-weight:500}
+.kv span{font-weight:600;word-break:break-all}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}
+input,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font:inherit}
+input:focus,select:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>input{flex:1;min-width:180px}
+.check{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px;margin:14px 0 4px}
+.check input{width:auto;margin:0}
+button{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:9px;font:inherit;font-weight:550;cursor:pointer}
+button.p{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+button.d{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px;background:var(--bg)}
+.badge:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.s-open{color:var(--ok)}.s-connecting{color:var(--warn)}.s-close{color:var(--bad)}
+.inst{border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px}
+.inst-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.inst-head h3{margin:0;font-size:15px}
+.qr{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.qr img{width:220px;height:220px;background:#fff;border-radius:10px;padding:6px}
+.code{font:600 22px/1 ui-monospace,Menlo,monospace;letter-spacing:3px}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+.mute{color:var(--mute);font-size:13px}
+.err{color:var(--bad);font-size:13px}
+.note{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:13px}
+.center{min-height:80vh;display:grid;place-items:center}
+.center .card{width:min(380px,100%)}
+details summary{cursor:pointer;font-weight:600}
+pre{white-space:pre-wrap;word-break:break-all;max-height:320px;overflow:auto;background:var(--bg);padding:10px;border-radius:10px;font-size:12px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.2s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+const T = {
+  tr: {
+    title: 'Flux WPAPI', subtitle: 'WhatsApp köprüsü', logout: 'Çıkış',
+    setupTitle: 'İlk kurulum', setupText: 'Panel için bir yönetici parolası belirleyin (en az 8 karakter).',
+    password: 'Parola', save: 'Kaydet', login: 'Giriş', loginTitle: 'Yönetici girişi',
+    wrong: 'Parola yanlış.', short: 'Parola en az 8 karakter olmalı.', limit: 'Çok fazla deneme. 10 dakika sonra tekrar deneyin.',
+    status: 'Durum', server: 'Sunucu', baileys: 'Baileys', compat: 'Evolution uyumu', node: 'Node', uptime: 'Çalışma süresi', memory: 'Bellek', storage: 'Depolama', ffmpeg: 'Sesli mesaj çevirici',
+    yes: 'Var', no: 'Yok', file: 'Dosya', mysql: 'MySQL',
+    instances: 'Numaralar (instance)', newInst: 'Yeni instance adı', add: 'Ekle',
+    noInst: 'Henüz instance yok. Bir ad yazıp ekleyin (ör. ornek).',
+    st_open: 'Bağlı', st_connecting: 'Bağlanıyor', st_close: 'Bağlı değil',
+    connect: 'Bağlan (QR)', pair: 'Telefon numarasıyla kod al', pairPh: '905301234567', logoutWa: 'Oturumu kapat', del: 'Sil',
+    scan: 'WhatsApp › Bağlı cihazlar › Cihaz bağla ile okutun.', pairText: 'WhatsApp › Bağlı cihazlar › Cihaz bağla › Telefon numarasıyla bağla ekranına bu kodu girin:',
+    webhook: 'Webhook adresi', webhookHint: 'Çağrı Merkezi bağlantıyı kaydedince bunu kendisi doldurur.', lastHook: 'Son webhook', queue: 'kuyrukta',
+    token: 'Instance token', tokenHint: 'İsteğe bağlı: yalnız bu instance için ayrı anahtar.', newToken: 'Üret', clearToken: 'Kaldır',
+    confirmDel: 'Bu instance ve kayıtlı mesajları silinsin mi?', confirmLogout: 'WhatsApp oturumu kapatılsın mı? Yeniden QR gerekir.',
+    api: 'Çağrı Merkezi bağlantı bilgileri', apiUrl: 'Sunucu adresi (base URL)', apiKey: 'API key', regen: 'Yenile', copy: 'Kopyala', copied: 'Kopyalandı',
+    confirmRegen: 'API key yenilensin mi? Çağrı Merkezi\'ndeki anahtarı da değiştirmeniz gerekir.',
+    apiHint: 'Flux Chat › Bağlantılar\'da Evolution bağlantısı gibi girin: adres, API key ve instance adı.',
+    settings: 'Ayarlar', publicUrl: 'Bu uygulamanın dış adresi', publicUrlHint: 'Örn. https://example.org. Uyanık tutma ve bağlantı bilgisi için gerekli.',
+    keepAlive: 'Uyanık tut (dakikada bir kendine istek at)', lastKa: 'Son uyanık tutma', lang: 'Dil',
+    db: 'Veritabanı', dbHint: 'MySQL önerilir: uygulama yeniden kurulsa da WhatsApp oturumu kaybolmaz. Depo değişince yeniden QR gerekir.',
+    host: 'Sunucu', port: 'Port', user: 'Kullanıcı', dbname: 'Veritabanı adı', prefix: 'Tablo öneki', test: 'Test et', testOk: 'Bağlantı başarılı.',
+    changePass: 'Parola değiştir', current: 'Mevcut parola', newPass: 'Yeni parola',
+    logs: 'Kayıtlar', saved: 'Kaydedildi', never: 'hiç', ago: 'önce', storeErr: 'Veritabanı açılamadı, dosya deposu kullanılıyor:',
+    kaOff: 'Dış adres girilmedi: Hostinger uygulamayı boşta durdurabilir ve WhatsApp bağlantısı kopar.',
+    sec: 'sn', min: 'dk', hour: 'sa', day: 'gün',
+  },
+  en: {
+    title: 'Flux WPAPI', subtitle: 'WhatsApp bridge', logout: 'Log out',
+    setupTitle: 'First setup', setupText: 'Choose an admin password for this panel (at least 8 characters).',
+    password: 'Password', save: 'Save', login: 'Log in', loginTitle: 'Admin login',
+    wrong: 'Wrong password.', short: 'Password must be at least 8 characters.', limit: 'Too many attempts. Try again in 10 minutes.',
+    status: 'Status', server: 'Server', baileys: 'Baileys', compat: 'Evolution compatibility', node: 'Node', uptime: 'Uptime', memory: 'Memory', storage: 'Storage', ffmpeg: 'Voice note converter',
+    yes: 'Yes', no: 'No', file: 'File', mysql: 'MySQL',
+    instances: 'Numbers (instances)', newInst: 'New instance name', add: 'Add',
+    noInst: 'No instances yet. Type a name and add one (e.g. ornek).',
+    st_open: 'Connected', st_connecting: 'Connecting', st_close: 'Disconnected',
+    connect: 'Connect (QR)', pair: 'Get code by phone number', pairPh: '905301234567', logoutWa: 'Log out session', del: 'Delete',
+    scan: 'Scan in WhatsApp › Linked devices › Link a device.', pairText: 'Enter this code in WhatsApp › Linked devices › Link a device › Link with phone number:',
+    webhook: 'Webhook URL', webhookHint: 'Call Center fills this in when the connection is saved.', lastHook: 'Last webhook', queue: 'queued',
+    token: 'Instance token', tokenHint: 'Optional: a separate key for this instance only.', newToken: 'Generate', clearToken: 'Remove',
+    confirmDel: 'Delete this instance and its stored messages?', confirmLogout: 'Log out of WhatsApp? A new QR scan will be needed.',
+    api: 'Call Center connection details', apiUrl: 'Server address (base URL)', apiKey: 'API key', regen: 'Regenerate', copy: 'Copy', copied: 'Copied',
+    confirmRegen: 'Regenerate the API key? You must update it in Call Center too.',
+    apiHint: 'In Flux Call Center › Connections, enter it like an Evolution connection: address, API key and instance name.',
+    settings: 'Settings', publicUrl: 'Public address of this app', publicUrlHint: 'E.g. https://example.org. Needed for keep-alive and connection details.',
+    keepAlive: 'Keep awake (request itself every minute)', lastKa: 'Last keep-alive', lang: 'Language',
+    db: 'Database', dbHint: 'MySQL is recommended: the WhatsApp session survives reinstalls. Changing storage requires a new QR scan.',
+    host: 'Host', port: 'Port', user: 'User', dbname: 'Database name', prefix: 'Table prefix', test: 'Test', testOk: 'Connection OK.',
+    changePass: 'Change password', current: 'Current password', newPass: 'New password',
+    logs: 'Logs', saved: 'Saved', never: 'never', ago: 'ago', storeErr: 'Database could not be opened, using file storage:',
+    kaOff: 'No public address set: Hostinger may stop the idle app and the WhatsApp connection will drop.',
+    sec: 's', min: 'min', hour: 'h', day: 'd',
+  },
+};
+let S = { lang: 'tr' }, L = T.tr, poll = null;
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const toast = (m) => { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2200); };
+async function api(path, body, method) {
+  const r = await fetch('/admin/api/' + path, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ ok: false, error: 'HTTP ' + r.status }));
+  if (!r.ok || j.ok === false) throw new Error(L[j.error] || j.error || 'HTTP ' + r.status);
+  return j;
+}
+const dur = (s) => s < 60 ? s + ' ' + L.sec : s < 3600 ? Math.round(s / 60) + ' ' + L.min : s < 86400 ? Math.round(s / 3600) + ' ' + L.hour : Math.round(s / 86400) + ' ' + L.day;
+const ago = (t) => t ? dur(Math.max(1, Math.round((Date.now() - t) / 1000))) + ' ' + L.ago : L.never;
+const copy = (v) => navigator.clipboard.writeText(v).then(() => toast(L.copied));
+
+async function load() {
+  try { S = await api('state'); } catch (e) { S = { setup: false, authed: false }; }
+  L = T[S.lang] || T.tr;
+  document.documentElement.lang = S.lang || 'tr';
+  render();
+}
+
+function render() {
+  const app = $('#app');
+  if (!S.authed) {
+    clearInterval(poll); poll = null;
+    const setup = S.setup;
+    app.innerHTML = `<div class="center"><form class="card" id="f"><h2>${setup ? L.setupTitle : L.loginTitle}</h2>
+      ${setup ? `<p class="mute">${L.setupText}</p>` : ''}
+      <label>${L.password}</label><input type="password" name="password" autocomplete="${setup ? 'new-password' : 'current-password'}" required autofocus>
+      <p class="err" id="e"></p><button class="p" style="width:100%">${setup ? L.save : L.login}</button></form></div>`;
+    $('#f').onsubmit = async (ev) => {
+      ev.preventDefault();
+      try { await api(setup ? 'setup' : 'login', { password: ev.target.password.value, lang: navigator.language.startsWith('tr') ? 'tr' : 'en' }); load(); }
+      catch (e) { $('#e').textContent = e.message; }
+    };
+    return;
+  }
+  const db = S.db || {};
+  app.innerHTML = `
+  <header><div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V12"/><path d="M12 12c0-4 3-7 8-8-1 5-4 8-8 8Z"/><path d="M12 15c0-3-2.5-5.5-7-6 .5 4 3 6 7 6Z"/></svg></div>
+    <div><h1>${L.title}</h1><div class="mute">${L.subtitle}</div></div><div class="sp"></div>
+    <button id="out">${L.logout}</button></header>
+  <main>
+    ${S.storeError ? `<div class="note err">${L.storeErr} ${esc(S.storeError)}</div>` : ''}
+    ${!S.publicUrl ? `<div class="note">${L.kaOff}</div>` : ''}
+    <section class="card"><h2>${L.instances}</h2>
+      <div id="insts" style="display:grid;gap:12px"></div>
+      <form class="row" id="addf" style="margin-top:12px"><input name="name" placeholder="${L.newInst}" pattern="[A-Za-z0-9_\\-]{1,64}" required><button class="p">${L.add}</button></form>
+    </section>
+    <section class="card"><h2>${L.api}</h2>
+      <p class="mute">${L.apiHint}</p>
+      <label>${L.apiUrl}</label><div class="row"><input readonly value="${esc(S.publicUrl || location.origin)}" class="mono"><button data-copy="${esc(S.publicUrl || location.origin)}">${L.copy}</button></div>
+      <label>${L.apiKey}</label><div class="row"><input readonly value="${esc(S.apiKey)}" class="mono"><button data-copy="${esc(S.apiKey)}">${L.copy}</button><button id="regen" class="d">${L.regen}</button></div>
+    </section>
+    <section class="card"><h2>${L.status}</h2><div class="grid">
+      <div class="kv"><b>${L.server}</b><span>flx-wpapi ${esc(S.version)}</span></div>
+      <div class="kv"><b>${L.baileys}</b><span>${esc(S.baileys)}</span></div>
+      <div class="kv"><b>${L.compat}</b><span>Evolution ${esc(S.compat)}</span></div>
+      <div class="kv"><b>${L.node}</b><span>${esc(S.node)}</span></div>
+      <div class="kv"><b>${L.uptime}</b><span>${dur(S.uptime)}</span></div>
+      <div class="kv"><b>${L.memory}</b><span>${S.memory} MB</span></div>
+      <div class="kv"><b>${L.storage}</b><span>${S.store === 'mysql' ? L.mysql : L.file}</span></div>
+      <div class="kv"><b>${L.ffmpeg}</b><span>${S.ffmpeg ? L.yes : L.no}</span></div>
+      <div class="kv"><b>${L.lastKa}</b><span>${S.keepAlive && S.publicUrl ? ago(S.keepAliveState.at) + (S.keepAliveState.ok === false ? ' ⚠ ' + esc(S.keepAliveState.error) : '') : '—'}</span></div>
+    </div></section>
+    <section class="card"><h2>${L.settings}</h2>
+      <form id="setf">
+        <label>${L.publicUrl}</label><input name="publicUrl" value="${esc(S.publicUrl)}" placeholder="https://wa.example.org"><div class="mute">${L.publicUrlHint}</div>
+        <label class="check"><input type="checkbox" name="keepAlive" ${S.keepAlive ? 'checked' : ''}> ${L.keepAlive}</label>
+        <label>${L.lang}</label><select name="lang"><option value="tr" ${S.lang === 'tr' ? 'selected' : ''}>Türkçe</option><option value="en" ${S.lang === 'en' ? 'selected' : ''}>English</option></select>
+        <p><button class="p">${L.save}</button></p>
+      </form>
+    </section>
+    <section class="card"><h2>${L.db}</h2><p class="mute">${L.dbHint}</p>
+      <form id="dbf">
+        <label>${L.storage}</label><select name="driver"><option value="file" ${db.driver !== 'mysql' ? 'selected' : ''}>${L.file}</option><option value="mysql" ${db.driver === 'mysql' ? 'selected' : ''}>MySQL</option></select>
+        <div id="my" ${db.driver !== 'mysql' ? 'hidden' : ''}>
+          <div class="grid"><div><label>${L.host}</label><input name="host" value="${esc(db.host)}"></div><div><label>${L.port}</label><input name="port" value="${esc(db.port)}"></div></div>
+          <div class="grid"><div><label>${L.dbname}</label><input name="database" value="${esc(db.database)}"></div><div><label>${L.user}</label><input name="user" value="${esc(db.user)}"></div></div>
+          <div class="grid"><div><label>${L.password}</label><input name="password" type="password" placeholder="${db.passwordSet ? '••••••' : ''}" autocomplete="new-password"></div><div><label>${L.prefix}</label><input name="prefix" value="${esc(db.prefix)}"></div></div>
+        </div>
+        <p class="err" id="dbe"></p>
+        <div class="row"><button type="button" id="dbt">${L.test}</button><button class="p">${L.save}</button></div>
+      </form>
+    </section>
+    <section class="card"><h2>${L.changePass}</h2>
+      <form id="pwf" class="grid"><div><label>${L.current}</label><input type="password" name="current" required></div><div><label>${L.newPass}</label><input type="password" name="password" required minlength="8"></div>
+      <div style="align-self:end"><button class="p">${L.save}</button></div></form>
+    </section>
+    <section class="card"><details id="logd"><summary>${L.logs}</summary><pre id="logs"></pre></details></section>
+  </main>`;
+  renderInstances();
+  $('#out').onclick = async () => { await api('logout', {}); load(); };
+  app.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => copy(b.dataset.copy)));
+  $('#regen').onclick = async () => { if (confirm(L.confirmRegen)) { await api('apikey', {}); load(); } };
+  $('#addf').onsubmit = async (ev) => { ev.preventDefault(); try { await api('instances', { name: ev.target.name.value }); await refresh(); } catch (e) { toast(e.message); } };
+  $('#setf').onsubmit = async (ev) => {
+    ev.preventDefault(); const f = ev.target;
+    try { await api('settings', { publicUrl: f.publicUrl.value, keepAlive: f.keepAlive.checked, lang: f.lang.value }); toast(L.saved); load(); } catch (e) { toast(e.message); }
+  };
+  const dbBody = () => Object.fromEntries(new FormData($('#dbf')));
+  $('#dbf').driver.onchange = (e) => ($('#my').hidden = e.target.value !== 'mysql');
+  $('#dbt').onclick = async () => { $('#dbe').textContent = ''; try { const r = await api('db/test', dbBody()); toast(r.ok ? L.testOk : r.error); if (!r.ok) $('#dbe').textContent = r.error; } catch (e) { $('#dbe').textContent = e.message; } };
+  $('#dbf').onsubmit = async (ev) => { ev.preventDefault(); $('#dbe').textContent = ''; try { await api('db', dbBody()); toast(L.saved); load(); } catch (e) { $('#dbe').textContent = e.message; } };
+  $('#pwf').onsubmit = async (ev) => { ev.preventDefault(); try { await api('password', { current: ev.target.current.value, password: ev.target.password.value }); ev.target.reset(); toast(L.saved); } catch (e) { toast(e.message); } };
+  $('#logd').ontoggle = async (e) => { if (e.target.open) { const r = await api('logs'); $('#logs').textContent = r.logs.map((l) => new Date(l.time).toLocaleTimeString() + ' ' + (l.msg || '') + ' ' + JSON.stringify(Object.fromEntries(Object.entries(l).filter(([k]) => !['time', 'msg', 'level'].includes(k))))).reverse().join('\n'); } };
+  if (!poll) poll = setInterval(refresh, 3000);
+}
+
+function renderInstances() {
+  const box = $('#insts');
+  if (!box) return;
+  const list = S.instances || [];
+  if (!list.length) { box.innerHTML = `<p class="mute">${L.noInst}</p>`; return; }
+  const open = document.activeElement && box.contains(document.activeElement) ? document.activeElement.name + '|' + document.activeElement.closest('[data-i]')?.dataset.i : '';
+  box.innerHTML = list.map((i) => `<div class="inst" data-i="${esc(i.name)}">
+    <div class="inst-head"><h3 class="mono">${esc(i.name)}</h3><span class="badge s-${i.state}">${L['st_' + i.state]}</span>
+      ${i.me ? `<span class="mute">${esc(i.me.name)} · ${esc(String(i.me.id).split(':')[0].split('@')[0])}</span>` : ''}</div>
+    ${i.state !== 'open' && (i.qr || i.pairingCode) ? `<div class="qr">${i.qr ? `<img alt="QR" src="${i.qr}">` : ''}<div>
+      ${i.pairingCode ? `<p class="mute">${L.pairText}</p><p class="code">${esc(i.pairingCode)}</p>` : `<p class="mute">${L.scan}</p>`}</div></div>` : ''}
+    ${i.lastError && i.state !== 'open' ? `<div class="err">${esc(i.lastError)}</div>` : ''}
+    <div class="row">
+      ${i.state === 'close' ? `<button class="p" data-a="connect">${L.connect}</button>` : ''}
+      ${i.state !== 'open' ? `<input name="pairnum" placeholder="${L.pairPh}" style="max-width:200px"><button data-a="pair">${L.pair}</button>` : ''}
+      ${i.state === 'open' ? `<button data-a="logout">${L.logoutWa}</button>` : ''}
+      <span class="sp" style="flex:1"></span><button class="d" data-a="del">${L.del}</button>
+    </div>
+    <div><label>${L.webhook}</label><div class="row"><input name="hook" class="mono" value="${esc(i.webhook?.url || '')}" placeholder="https://…/wp-json/flx-chat/v1/webhook/…"><button data-a="hook">${L.save}</button></div>
+      <div class="mute">${L.webhookHint} ${L.lastHook}: ${i.delivery ? ago(i.delivery.at) + (i.delivery.error ? ' ⚠ ' + esc(i.delivery.error) : ' ✓') : L.never}${i.pending ? ` · ${i.pending} ${L.queue}` : ''}</div></div>
+    <div><label>${L.token}</label><div class="row"><input readonly class="mono" value="${esc(i.token)}" placeholder="—">${i.token ? `<button data-copy="${esc(i.token)}">${L.copy}</button><button data-a="untoken">${L.clearToken}</button>` : ''}<button data-a="token">${L.newToken}</button></div><div class="mute">${L.tokenHint}</div></div>
+  </div>`).join('');
+  box.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => copy(b.dataset.copy)));
+  box.querySelectorAll('[data-a]').forEach((b) => (b.onclick = async () => {
+    const card = b.closest('[data-i]'), n = encodeURIComponent(card.dataset.i), a = b.dataset.a;
+    try {
+      if (a === 'connect') await api(`instances/${n}/connect`, {});
+      if (a === 'pair') await api(`instances/${n}/connect`, { number: card.querySelector('[name=pairnum]').value });
+      if (a === 'logout' && confirm(L.confirmLogout)) await api(`instances/${n}/logout`, {});
+      if (a === 'del' && confirm(L.confirmDel)) await api(`instances/${n}`, null, 'DELETE');
+      if (a === 'hook') { await api(`instances/${n}/webhook`, { url: card.querySelector('[name=hook]').value }); toast(L.saved); }
+      if (a === 'token') await api(`instances/${n}/token`, {});
+      if (a === 'untoken') await api(`instances/${n}/token`, { clear: true });
+      await refresh(true);
+    } catch (e) { toast(e.message); }
+  }));
+  if (open) { const [nm, ii] = open.split('|'); box.querySelector(`[data-i="${CSS.escape(ii)}"] [name="${nm}"]`)?.focus(); }
+}
+
+async function refresh(force) {
+  // Yazı yazılırken kartları yeniden çizme.
+  if (!force && document.activeElement && $('#insts')?.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+  try { S = await api('state'); } catch { return load(); }
+  if (!S.authed) return render();
+  renderInstances();
+}
+load();
+</script>
+</body>
+</html>

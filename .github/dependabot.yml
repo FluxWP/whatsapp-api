@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      baileys:
+        patterns: ["baileys"]
+    # rc sürümleri de gelsin: Baileys 7 şu an rc kanalında.
+    allow:
+      - dependency-type: all
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
