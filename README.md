@@ -72,6 +72,16 @@ FLXW_DATA_DIR=./data PORT=3000 bun run start  # http://localhost:3000/admin
 bun run test                              # sahte soketle uç testleri
 ```
 
+## Geliştirici
+
+flx-wpapi, **Ahmet Yılmaz** ([@sharkpaw](https://github.com/sharkpaw)) tarafından yürütülmekte ve geliştirilmektedir.
+
+<table><tr><td align="center"><a href="https://github.com/sharkpaw"><img src="https://github.com/sharkpaw.png?size=120" width="64" alt="Ahmet Yılmaz"><br><b>Ahmet Yılmaz</b></a><br><sub>Proje lideri · Maintainer</sub></td></tr></table>
+
+### Katkıda bulunanlar
+
+Issue ve pull request'ler açıktır. Katkıda bulunanlar burada listelenecek.
+
 ## Lisans
 
 MIT.
