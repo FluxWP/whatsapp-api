@@ -8,7 +8,7 @@ Her istekte `apikey: <genel API key>` başlığı. Genel anahtar kurulumda `FLXW
 
 ## Sağlayıcıyı tanıma
 
-`GET /` → `{ version: "2.3.0", clientName: "flx-wpapi", flxwpapi: "0.1.1" }`. Evolution'da `clientName` yoktur ya da farklıdır; `flxwpapi` alanı varsa sunucu ayarları bölümü gösterilir.
+`GET /` → `{ version: "2.3.0", clientName: "flx-wpapi", flxwpapi: "0.1.2" }`. Evolution'da `clientName` yoktur ya da farklıdır; `flxwpapi` alanı varsa sunucu ayarları bölümü gösterilir.
 
 ## Hesap akışı
 
@@ -32,6 +32,7 @@ Her istekte `apikey: <genel API key>` başlığı. Genel anahtar kurulumda `FLXW
 - `POST /flxw/server` `{ publicUrl?, keepAlive?, db?: { driver, host, port, user, password, database, prefix } }` → aynı gövde. `db` önce denenir, olmazsa `400 { ok: false, error }`. Boş parola = kayıtlı parola kalır. `locked.db` true ise (ortam değişkeniyle verilmiş) `409`. Depo değişince bağlantılar kapanır, hesaplar yeniden QR ister. `publicUrl` yalnız bu uçtan (veya `FLXW_PUBLIC_URL`) yazılır; istek başlığından öğrenilmez. Docker içi bir taban adres (ör. `http://172.17.0.2:8080`) geçerlidir ve SSRF listesine takılmaz.
 - `POST /flxw/server/db-test` `{ db }` → `{ ok, error? }`.
 - `GET /flxw/logs?n=100` → son kayıtlar (pino JSON).
+- Mesaj saklama süresi bu uçtan değişmez. Varsayılan 45 gündür: `FLXW_MSG_KEEP_DAYS` ya da config.json `msgKeepDays` (1–3650). Süresi dolan mesajlar açılışta ve 6 saatte bir silinir. Oturum anahtarları ve kişiler kalır.
 
 ## Evolution'dan farklar
 

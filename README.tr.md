@@ -18,7 +18,7 @@ Altında [Baileys](https://github.com/WhiskeySockets/Baileys) 7 var (değiştiri
 |---|---|
 | Mesaj gönderme | metin (alıntı, mention, link önizleme, "yazıyor…" gecikmesi), görsel, video, belge, sesli mesaj, tepki, düzenleme |
 | Gelen | mesaj (medya base64 ile), tik/okundu, silme, düzenleme, tepki, "yazıyor…", kişi adı/fotoğrafı, bağlantı durumu |
-| Diğer | QR ya da telefon numarasıyla eşleştirme, numara WhatsApp'ta var mı, profil fotoğrafı, grup listesi, okundu işaretleme, geçmiş (findChats/findMessages, son 45 gün) |
+| Diğer | QR ya da telefon numarasıyla eşleştirme, numara WhatsApp'ta var mı, profil fotoğrafı, grup listesi, okundu işaretleme, geçmiş (findChats/findMessages, varsayılan son 45 gün) |
 | Yok | Evolution'ın Typebot/Chatwoot/RabbitMQ/S3 entegrasyonları, kampanya, Cloud API |
 
 Uçların tam listesi: `src/evolution.js`.
@@ -38,6 +38,7 @@ Sunucu bir kez kurulur; sonrası (hesap ekleme, QR, webhook, dış adres, verita
      | `FLXW_API_KEY` | Genel API key (uzun rastgele bir metin). WordPress'e bu girilir. |
      | `FLXW_DB_HOST`, `FLXW_DB_NAME`, `FLXW_DB_USER`, `FLXW_DB_PASSWORD` | MySQL. Verilirse WordPress'ten değiştirilemez. Vermezseniz WordPress'ten girilir. |
      | `FLXW_DATA_DIR` | Ayar klasörü; uygulama klasörünün **dışında** olsun (ör. `/home/<kullanıcı>/flxw-data`), yeniden kurulumda silinmesin. |
+     | `FLXW_MSG_KEEP_DAYS` | Mesajların kaç gün saklanacağı. Varsayılan 45, aralık 1–3650; boş veya geçersiz değer varsayılanı (ya da config.json içindeki `msgKeepDays`) bırakır. Süresi dolan mesajlar açılışta ve 6 saatte bir silinir. Oturum anahtarları ve kişiler silinmez. |
      | `FLXW_PANEL` | `off` ise yedek panel (/admin) kapanır. |
      | `FLXW_PUBLIC_URL` | Bu uygulamanın dış adresi (uyanık tutma ve bağlantı bilgisi). İstekteki `Host` başlığından alınmaz. Özel ağ veya Docker adresi verilebilir. |
      | `FLXW_SETUP_TOKEN` | İlk yönetici parolası için isteğe bağlı tek seferlik jeton. Boşsa sunucu bir jeton üretir ve günlüğe bir kez yazar. |

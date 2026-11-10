@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
  * Ayarlar data/config.json'da durur ve panelden değişir.
  * Ortam değişkenleri (FLXW_*) kilitli ayarlar ve ilk kurulum içindir; liste README'de.
  */
-export const VERSION = '0.1.1';
+export const VERSION = '0.1.2';
 // Çağrı Merkezi Evolution sürümüne bakar (2.3 altı @lid uyarısı); taklit ettiğimiz API düzeyi.
 export const EVOLUTION_COMPAT = '2.3.0';
 
@@ -21,6 +21,7 @@ const defaults = () => ({
   keepAlive: true,
   lang: 'tr',
   db: { driver: 'file', host: 'localhost', port: 3306, user: '', password: '', database: '', prefix: 'flxw_' },
+  msgKeepDays: 45,
   instances: {},
 });
 
@@ -77,6 +78,24 @@ function applyEnv() {
     fromEnv.db = true;
   }
   if (e.FLXW_PUBLIC_URL) cfg.publicUrl = e.FLXW_PUBLIC_URL.replace(/\/+$/, '');
+  if (e.FLXW_MSG_KEEP_DAYS !== undefined && String(e.FLXW_MSG_KEEP_DAYS).trim() !== '') {
+    const d = parseMsgKeepDays(e.FLXW_MSG_KEEP_DAYS);
+    if (d) cfg.msgKeepDays = d;
+  }
+}
+
+/** Saklanan mesaj ömrü (gün). Boş, geçersiz veya 1'den küçük değer yok sayılır; üst sınır 3650. */
+export function parseMsgKeepDays(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n)) return null;
+  const d = Math.floor(n);
+  if (d < 1) return null;
+  return Math.min(3650, d);
+}
+
+export function msgKeepDays() {
+  return parseMsgKeepDays(get().msgKeepDays) ?? 45;
 }
 
 export function get() {

@@ -1,14 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA_DIR } from './config.js';
+import { DATA_DIR, msgKeepDays } from './config.js';
+import { log } from './log.js';
 
 /*
  * Depolama: oturum anahtarları (kv) ve mesajlar. İki sürücü aynı arayüzü verir:
  *  - mysql: Hostinger'da önerilen; uygulama yeniden kurulsa da oturum kaybolmaz.
  *  - file:  data/ klasörü; yerel deneme ve MySQL yokken.
+ * Mesajlar msgKeepDays() gününden eskiyse açılışta ve periyodik temizlikte silinir.
+ * auth:* (oturum) ve contacts:* dokunulmaz; medya dosyası ayrıca tutulmaz.
  */
 
-const MSG_KEEP_DAYS = 45;
+const PURGE_MS = 6 * 60 * 60 * 1000;
 
 class FileStore {
   constructor() {
@@ -17,11 +20,15 @@ class FileStore {
     fs.mkdirSync(path.join(this.dir, 'msg'), { recursive: true });
     this.msgs = new Map(); // inst -> Map(id -> row)
     this.appends = new Map(); // inst -> satır sayısı (sıkıştırma için)
+    this.fileLines = new Map(); // inst -> dosyadaki satır sayısı
   }
   get driver() {
     return 'file';
   }
-  async init() {}
+  async init() {
+    const r = await this.purge();
+    if (r.deleted) log.info({ deleted: r.deleted, driver: this.driver }, 'eski mesajlar silindi');
+  }
   kvFile(ns, key) {
     const safe = (s) => encodeURIComponent(s).replace(/%/g, '_').replace(/\./g, '_2E');
     return path.join(this.dir, 'kv', safe(ns), safe(key) + '.json');
@@ -59,9 +66,11 @@ class FileStore {
   load(inst) {
     if (this.msgs.has(inst)) return this.msgs.get(inst);
     const m = new Map();
+    let lines = 0;
     try {
       for (const line of fs.readFileSync(this.msgFile(inst), 'utf8').split('\n')) {
         if (!line) continue;
+        lines++;
         try {
           const r = JSON.parse(line);
           m.set(r.id, r);
@@ -69,24 +78,90 @@ class FileStore {
       }
     } catch {}
     this.msgs.set(inst, m);
+    this.fileLines.set(inst, lines);
     return m;
   }
   async msgPut(inst, row) {
     const m = this.load(inst);
     m.set(row.id, row);
     fs.appendFileSync(this.msgFile(inst), JSON.stringify(row) + '\n');
+    this.fileLines.set(inst, (this.fileLines.get(inst) || 0) + 1);
     const n = (this.appends.get(inst) || 0) + 1;
     this.appends.set(inst, n);
     if (n > 2000 && m.size * 2 < n) await this.compact(inst);
   }
   async compact(inst) {
+    await this.purgeInst(inst, Date.now() - msgKeepDays() * 864e5);
+  }
+  // Bellekte yüklü olmayan instance'ı temizledikten sonra bırakır.
+  async purgeInst(inst, min) {
+    const wasLoaded = this.msgs.has(inst);
     const m = this.load(inst);
-    const min = Date.now() - MSG_KEEP_DAYS * 864e5;
-    for (const [id, r] of m) if (r.ts < min) m.delete(id);
-    const tmp = this.msgFile(inst) + '.tmp';
-    fs.writeFileSync(tmp, [...m.values()].map((r) => JSON.stringify(r)).join('\n') + '\n');
-    fs.renameSync(tmp, this.msgFile(inst));
-    this.appends.set(inst, m.size);
+    let removed = 0;
+    for (const [id, r] of [...m]) {
+      if (r.ts < min) {
+        m.delete(id);
+        removed++;
+      }
+    }
+    const lines = this.fileLines.get(inst) || 0;
+    if (removed > 0 || lines !== m.size) {
+      const file = this.msgFile(inst);
+      const tmp = file + '.tmp';
+      const body = [...m.values()].map((r) => JSON.stringify(r)).join('\n');
+      fs.writeFileSync(tmp, body ? body + '\n' : '');
+      fs.renameSync(tmp, file);
+      this.fileLines.set(inst, m.size);
+      this.appends.set(inst, m.size);
+    }
+    if (!wasLoaded) {
+      this.msgs.delete(inst);
+      this.fileLines.delete(inst);
+    }
+    return removed;
+  }
+  async purge(now = Date.now()) {
+    const min = now - msgKeepDays() * 864e5;
+    let names = [];
+    try {
+      names = fs.readdirSync(path.join(this.dir, 'msg'));
+    } catch {
+      return { deleted: 0 };
+    }
+    let deleted = 0;
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      let inst;
+      try {
+        inst = decodeURIComponent(name.slice(0, -'.jsonl'.length));
+      } catch {
+        continue;
+      }
+      deleted += await this.purgeInst(inst, min);
+    }
+    return { deleted };
+  }
+  // İstenen anahtarlar için tek dizin geçişi. Sohbet başına ayrı okuma yok.
+  contactMap(ns, keys) {
+    const out = new Map();
+    if (!keys.length) return out;
+    const dir = path.dirname(this.kvFile(ns, 'x'));
+    const want = new Map();
+    for (const key of keys) want.set(path.basename(this.kvFile(ns, key)), key);
+    let names;
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      return out;
+    }
+    for (const name of names) {
+      const key = want.get(name);
+      if (!key) continue;
+      try {
+        out.set(key, fs.readFileSync(path.join(dir, name), 'utf8'));
+      } catch {}
+    }
+    return out;
   }
   async msgGet(inst, id) {
     return this.load(inst).get(id) || null;
@@ -103,7 +178,10 @@ class FileStore {
       const c = by.get(r.jid);
       if (!c || c.ts < r.ts) by.set(r.jid, { jid: r.jid, ts: r.ts, push: r.push || (c && c.push) || '' });
     }
-    return [...by.values()].sort((a, b) => b.ts - a.ts);
+    const list = [...by.values()].sort((a, b) => b.ts - a.ts);
+    const contacts = this.contactMap(`contacts:${inst}`, list.map((c) => c.jid));
+    for (const c of list) c.contact = contacts.get(c.jid) || null;
+    return list;
   }
   async dropInstance(inst) {
     this.msgs.delete(inst);
@@ -140,7 +218,13 @@ class MysqlStore {
       from_me TINYINT NOT NULL DEFAULT 0, ts BIGINT NOT NULL, push VARCHAR(190) NOT NULL DEFAULT '',
       data LONGTEXT NOT NULL,
       PRIMARY KEY (inst, id), KEY jt (inst, jid, ts), KEY t (inst, ts)) DEFAULT CHARSET=utf8mb4`);
-    await this.pool.query(`DELETE FROM ${this.p}msg WHERE ts < ?`, [Date.now() - MSG_KEEP_DAYS * 864e5]);
+    const r = await this.purge();
+    if (r.deleted) log.info({ deleted: r.deleted, driver: this.driver }, 'eski mesajlar silindi');
+  }
+  async purge(now = Date.now()) {
+    const min = now - msgKeepDays() * 864e5;
+    const [r] = await this.pool.query(`DELETE FROM ${this.p}msg WHERE ts < ?`, [min]);
+    return { deleted: Number(r?.affectedRows || 0) };
   }
   async kvGet(ns, key) {
     const [r] = await this.pool.query(`SELECT v FROM ${this.p}kv WHERE ns=? AND k=?`, [ns, key]);
@@ -180,10 +264,16 @@ class MysqlStore {
   }
   async chats(inst) {
     const [r] = await this.pool.query(
-      `SELECT jid, MAX(ts) ts, MAX(push) push FROM ${this.p}msg WHERE inst=? GROUP BY jid ORDER BY ts DESC LIMIT 500`,
-      [inst],
+      `SELECT c.jid, c.ts, c.push, k.v AS contact
+       FROM (
+         SELECT jid, MAX(ts) ts, MAX(push) push
+         FROM ${this.p}msg WHERE inst=? GROUP BY jid ORDER BY ts DESC LIMIT 500
+       ) c
+       LEFT JOIN ${this.p}kv k ON k.ns=? AND k.k=c.jid
+       ORDER BY c.ts DESC`,
+      [inst, `contacts:${inst}`],
     );
-    return r.map((x) => ({ jid: x.jid, ts: Number(x.ts), push: x.push || '' }));
+    return r.map((x) => ({ jid: x.jid, ts: Number(x.ts), push: x.push || '', contact: x.contact || null }));
   }
   async dropInstance(inst) {
     await this.pool.query(`DELETE FROM ${this.p}msg WHERE inst=?`, [inst]);
@@ -194,13 +284,37 @@ class MysqlStore {
 }
 
 let current = null;
+let purgeTimer = null;
 
 export async function open(db) {
   const s = db && db.driver === 'mysql' ? new MysqlStore(db) : new FileStore();
   await s.init();
   if (current) await current.close();
   current = s;
+  startRetention();
   return s;
+}
+
+/** Süresi dolan mesajları siler. Zamanlayıcı unref'lidir; süreç yalnız onun için ayakta kalmaz. */
+export function startRetention() {
+  if (purgeTimer) clearInterval(purgeTimer);
+  const tick = () => {
+    const s = current;
+    if (!s) return;
+    s.purge()
+      .then((r) => {
+        if (r && r.deleted) log.info({ deleted: r.deleted, driver: s.driver }, 'eski mesajlar silindi');
+      })
+      .catch((e) => log.warn({ err: e.message }, 'mesaj temizliği başarısız'));
+  };
+  purgeTimer = setInterval(tick, PURGE_MS);
+  purgeTimer.unref?.();
+  return purgeTimer;
+}
+
+export function stopRetention() {
+  if (purgeTimer) clearInterval(purgeTimer);
+  purgeTimer = null;
 }
 
 /** Bağlantı denemesi: panelde "Test et". */
@@ -219,3 +333,5 @@ export async function test(db) {
 export function store() {
   return current;
 }
+
+export { FileStore, MysqlStore };

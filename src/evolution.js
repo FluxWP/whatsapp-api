@@ -298,10 +298,11 @@ router.post('/chat/getBase64FromMediaMessage/:instance', auth, wrap(async (req, 
 
 router.post('/chat/findChats/:instance', auth, wrap(async (req, res) => {
   const i = instanceOf(req);
+  // chats() kişileri MySQL'de tek sorguda, dosyada tek dizin geçişinde getirir.
   const chats = await store().chats(i.name);
   const out = [];
   for (const c of chats) {
-    const ct = JSON.parse((await store().kvGet(`contacts:${i.name}`, c.jid)) || '{}');
+    const ct = JSON.parse(c.contact || '{}');
     out.push({
       id: c.jid,
       remoteJid: c.jid,

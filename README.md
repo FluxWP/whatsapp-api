@@ -18,7 +18,7 @@ It runs on [Baileys](https://github.com/WhiskeySockets/Baileys) 7, used unmodifi
 |---|---|
 | Sending | text (quote, mention, link preview, "typing…" delay), image, video, document, voice note, reaction, edit |
 | Incoming | messages (media as base64), delivered/read ticks, deletes, edits, reactions, "typing…", contact name/photo, connection state |
-| Other | pairing by QR or phone number, "is this number on WhatsApp", profile photo, group list, mark as read, history (findChats/findMessages, last 45 days) |
+| Other | pairing by QR or phone number, "is this number on WhatsApp", profile photo, group list, mark as read, history (findChats/findMessages, last 45 days by default) |
 | Not included | Evolution's Typebot/Chatwoot/RabbitMQ/S3 integrations, campaigns, Cloud API |
 
 The full endpoint list is in `src/evolution.js`.
@@ -38,6 +38,7 @@ You set up the server once. After that, accounts, QR pairing, webhooks, the publ
      | `FLXW_API_KEY` | Global API key (a long random string). This is what you enter in WordPress. |
      | `FLXW_DB_HOST`, `FLXW_DB_NAME`, `FLXW_DB_USER`, `FLXW_DB_PASSWORD` | MySQL. If set here, WordPress cannot change them; if not, enter them from WordPress. |
      | `FLXW_DATA_DIR` | Settings folder. Keep it **outside** the app folder (e.g. `/home/<user>/flxw-data`) so a redeploy does not delete it. |
+     | `FLXW_MSG_KEEP_DAYS` | How many days of messages to keep. Default 45, allowed 1–3650; empty or invalid keeps the default (or `msgKeepDays` in config.json). Expired messages are removed at startup and every 6 hours. Session keys and contacts are not deleted. |
      | `FLXW_PANEL` | `off` turns off the fallback panel (/admin). |
      | `FLXW_PUBLIC_URL` | Public base URL of this app (keep-alive and connection details). Never taken from the request `Host` header. A private or Docker address is allowed. |
      | `FLXW_SETUP_TOKEN` | Optional one-time token for the first admin password. If empty, a token is generated and printed once in the server log. |
