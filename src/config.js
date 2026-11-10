@@ -3,10 +3,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 /*
- * Ayarlar data/config.json'da durur ve panelden değişir. Ortam değişkenleri yalnız ilk açılış için:
- * FLXW_DATA_DIR (veri klasörü), PORT.
+ * Ayarlar data/config.json'da durur ve panelden değişir.
+ * Ortam değişkenleri (FLXW_*) kilitli ayarlar ve ilk kurulum içindir; liste README'de.
  */
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 // Çağrı Merkezi Evolution sürümüne bakar (2.3 altı @lid uyarısı); taklit ettiğimiz API düzeyi.
 export const EVOLUTION_COMPAT = '2.3.0';
 
@@ -37,6 +37,10 @@ export function load() {
   const d = defaults();
   cfg = { ...d, ...raw, db: { ...d.db, ...(raw.db || {}) }, instances: raw.instances || {} };
   if (!cfg.apiKey) cfg.apiKey = crypto.randomBytes(24).toString('hex');
+  // Önceki load()'un kilit bayrakları bu yazmayı etkilemesin.
+  fromEnv.apiKey = false;
+  fromEnv.db = false;
+  fromEnv.adminPassword = false;
   save();
   applyEnv();
   return cfg;
@@ -46,12 +50,19 @@ export function load() {
  * Kurulumda Hostinger'ın ortam değişkenleri ile verilebilir; böylece ayrı panel açmadan WordPress'ten yönetilir.
  * Ortamdan gelen değerler config.json'a yazılmaz, her açılışta uygulanır.
  */
-export const fromEnv = { apiKey: false, db: false };
+export const fromEnv = { apiKey: false, db: false, adminPassword: false };
 function applyEnv() {
   const e = process.env;
+  fromEnv.apiKey = false;
+  fromEnv.db = false;
+  fromEnv.adminPassword = false;
   if (e.FLXW_API_KEY) {
     cfg.apiKey = e.FLXW_API_KEY;
     fromEnv.apiKey = true;
+  }
+  if (e.FLXW_ADMIN_PASSWORD) {
+    cfg.adminHash = hashPassword(e.FLXW_ADMIN_PASSWORD);
+    fromEnv.adminPassword = true;
   }
   if (e.FLXW_DB_NAME) {
     cfg.db = {
@@ -76,6 +87,7 @@ export function save() {
   const out = { ...cfg };
   // Ortamdan gelenler dosyaya yazılmaz.
   if (fromEnv.apiKey) delete out.apiKey;
+  if (fromEnv.adminPassword) delete out.adminHash;
   if (fromEnv.db) delete out.db;
   const tmp = FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(out, null, 2), { mode: 0o600 });
@@ -105,5 +117,45 @@ export function checkPassword(pass, stored) {
 export function safeEqual(a, b) {
   const x = Buffer.from(String(a));
   const y = Buffer.from(String(b));
-  return x.length === y.length && crypto.timingSafeEqual(x, y);
+  const n = Math.max(x.length, y.length);
+  if (n === 0) return false;
+  const xb = Buffer.alloc(n);
+  const yb = Buffer.alloc(n);
+  x.copy(xb);
+  y.copy(yb);
+  return x.length === y.length && crypto.timingSafeEqual(xb, yb);
 }
+
+/*
+ * trust proxy varsayılanı kapalıdır. FLXW_TRUST_PROXY: atlama sayısı (1, 2, …),
+ * vekil IP/CIDR listesi veya loopback|linklocal|uniquelocal.
+ * "true" koşulsuz güvendir; X-Forwarded-For ile giriş sınırı aşılabildiği için yok sayılır.
+ */
+export function parseTrustProxy(val = process.env.FLXW_TRUST_PROXY) {
+  if (val === undefined || val === null) return false;
+  const s = String(val).trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower === 'false' || lower === 'off' || lower === 'no' || lower === '0') return false;
+  if (lower === 'true' || lower === 'on' || lower === 'yes') return false;
+  if (/^[1-9]\d*$/.test(s)) return Number(s);
+  if (lower === 'loopback' || lower === 'linklocal' || lower === 'uniquelocal') return lower;
+  if (/^[0-9a-zA-Z.:/,\s]+$/.test(s) && /\d/.test(s)) return s;
+  return false;
+}
+
+// İlk kurulum jetonu bellekte durur, config.json'a yazılmaz. Parola konunca setupToken() boş döner.
+let generatedSetupToken = '';
+
+export function setupToken() {
+  if (!cfg || fromEnv.adminPassword || cfg.adminHash) return '';
+  const env = String(process.env.FLXW_SETUP_TOKEN || '');
+  if (env) return env;
+  if (!generatedSetupToken) generatedSetupToken = crypto.randomBytes(24).toString('hex');
+  return generatedSetupToken;
+}
+
+export function setupTokenFromEnv() {
+  return !!(setupToken() && String(process.env.FLXW_SETUP_TOKEN || ''));
+}
+

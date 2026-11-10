@@ -3,12 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { get as cfg, save, update, hashPassword, checkPassword, safeEqual, fromEnv, VERSION } from './config.js';
+import { get as cfg, save, update, hashPassword, checkPassword, safeEqual, fromEnv, setupToken, VERSION } from './config.js';
 import * as storeMod from './store.js';
 import { serverInfo, dbFrom, switchDb, cleanUrl } from './server-api.js';
 import * as inst from './instance.js';
 import { lastDelivery, pending } from './webhook.js';
 import { recent } from './log.js';
+import { checkSafeUrl } from './url-guard.js';
 
 /* Yönetim paneli: /admin. Tüm ayarlar buradan girilir; oturum imzalı çerezle. */
 
@@ -32,17 +33,52 @@ function setCookie(req, res) {
   res.set('Set-Cookie', `${COOKIE}=${exp}.${sign(exp)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${TTL / 1000}${secure}`);
 }
 
-// Basit kaba kuvvet koruması: IP başına 10 dakikada 8 hatalı deneme.
+// Kaba kuvvet koruması: IP başına 10 dakikada 8, toplamda 10 dakikada 30 hatalı deneme; en fazla 1024 IP kaydı.
+const FAIL_WINDOW = 600000;
+const FAIL_IP_MAX = 8;
+const FAIL_GLOBAL_MAX = 30;
+const FAIL_MAP_CAP = 1024;
 const fails = new Map();
-function limited(ip) {
-  const f = fails.get(ip);
-  return f && f.n >= 8 && Date.now() - f.at < 600000;
+let globalFails = { n: 0, at: 0 };
+
+function pruneFails(now) {
+  if (now - globalFails.at > FAIL_WINDOW) globalFails = { n: 0, at: now };
+  for (const [k, v] of fails) {
+    if (now - v.at > FAIL_WINDOW) fails.delete(k);
+  }
 }
-function failed(ip) {
-  const f = fails.get(ip) || { n: 0, at: Date.now() };
-  if (Date.now() - f.at > 600000) Object.assign(f, { n: 0, at: Date.now() });
+
+function failKey(ip) {
+  return String(ip || 'unknown');
+}
+
+export function limited(ip, now = Date.now()) {
+  pruneFails(now);
+  if (globalFails.n >= FAIL_GLOBAL_MAX && now - globalFails.at < FAIL_WINDOW) return true;
+  const f = fails.get(failKey(ip));
+  return !!(f && f.n >= FAIL_IP_MAX && now - f.at < FAIL_WINDOW);
+}
+
+export function failed(ip, now = Date.now()) {
+  pruneFails(now);
+  if (now - globalFails.at > FAIL_WINDOW || globalFails.n === 0) globalFails = { n: 1, at: now };
+  else globalFails.n++;
+  const key = failKey(ip);
+  const f = fails.get(key) || { n: 0, at: now };
+  if (now - f.at > FAIL_WINDOW) Object.assign(f, { n: 0, at: now });
   f.n++;
-  fails.set(ip, f);
+  fails.delete(key);
+  fails.set(key, f);
+  while (fails.size > FAIL_MAP_CAP) fails.delete(fails.keys().next().value);
+}
+
+export function resetLimiter() {
+  fails.clear();
+  globalFails = { n: 0, at: 0 };
+}
+
+export function limiterSize() {
+  return fails.size;
 }
 
 const wrap = (fn) => async (req, res) => {
@@ -62,7 +98,7 @@ router.get('/', (req, res) => {
 
 router.get('/api/state', wrap(async (req, res) => {
   const c = cfg();
-  const base = { ok: true, setup: !c.adminHash, authed: authed(req), lang: c.lang, version: VERSION };
+  const base = { ok: true, setup: !c.adminHash && !fromEnv.adminPassword, authed: authed(req), lang: c.lang, version: VERSION };
   if (!base.authed) return res.json(base);
   const info = await serverInfo();
   res.json({
@@ -74,9 +110,17 @@ router.get('/api/state', wrap(async (req, res) => {
 }));
 
 router.post('/api/setup', wrap(async (req, res) => {
-  if (cfg().adminHash) return res.status(400).json({ ok: false, error: 'already' });
+  if (fromEnv.adminPassword || cfg().adminHash) return res.status(400).json({ ok: false, error: 'already' });
+  if (limited(req.ip)) return res.status(429).json({ ok: false, error: 'limit' });
+  const given = String(req.body?.setupToken ?? req.get('x-setup-token') ?? '');
+  const expected = setupToken();
+  if (!expected || !safeEqual(given, expected)) {
+    failed(req.ip);
+    return res.status(401).json({ ok: false, error: 'token' });
+  }
   const p = String(req.body?.password || '');
   if (p.length < 8) return res.status(400).json({ ok: false, error: 'short' });
+  fails.delete(failKey(req.ip));
   update({ adminHash: hashPassword(p), lang: req.body?.lang === 'en' ? 'en' : 'tr' });
   setCookie(req, res);
   res.json({ ok: true });
@@ -88,7 +132,7 @@ router.post('/api/login', wrap(async (req, res) => {
     failed(req.ip);
     return res.status(401).json({ ok: false, error: 'wrong' });
   }
-  fails.delete(req.ip);
+  fails.delete(failKey(req.ip));
   setCookie(req, res);
   res.json({ ok: true });
 }));
@@ -99,6 +143,7 @@ router.post('/api/logout', (req, res) => {
 });
 
 router.post('/api/password', need, wrap(async (req, res) => {
+  if (fromEnv.adminPassword) return res.status(409).json({ ok: false, error: 'env' });
   if (!checkPassword(req.body?.current || '', cfg().adminHash)) return res.status(400).json({ ok: false, error: 'wrong' });
   const p = String(req.body?.password || '');
   if (p.length < 8) return res.status(400).json({ ok: false, error: 'short' });
@@ -170,7 +215,13 @@ router.post('/api/instances/:name/webhook', need, wrap(async (req, res) => {
   const c = cfg().instances[req.params.name];
   if (!c) return res.status(404).json({ ok: false, error: 'notfound' });
   const url = String(req.body?.url || '').trim();
-  if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ ok: false, error: 'url' });
+  if (url) {
+    try {
+      await checkSafeUrl(url);
+    } catch {
+      return res.status(400).json({ ok: false, error: 'url' });
+    }
+  }
   c.webhook = { ...(c.webhook || { events: [], base64: true, byEvents: false }), url, enabled: !!url && req.body?.enabled !== false };
   save();
   res.json({ ok: true });

@@ -7,11 +7,17 @@ import path from 'node:path';
 
 // Gerçek WhatsApp'a bağlanmadan: sahte soketle Evolution uçlarını ve webhook biçimini dener.
 process.env.FLXW_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'flxw-'));
-const { load, get: cfg } = await import('../src/config.js');
+process.env.FLXW_ALLOW_PRIVATE_URLS = '1';
+delete process.env.FLXW_TRUST_PROXY;
+delete process.env.FLXW_SETUP_TOKEN;
+delete process.env.FLXW_ADMIN_PASSWORD;
+const { load, get: cfg, update, parseTrustProxy, setupToken } = await import('../src/config.js');
 const { open } = await import('../src/store.js');
 const inst = await import('../src/instance.js');
 const { router } = await import('../src/evolution.js');
 const { router: serverApi } = await import('../src/server-api.js');
+const { router: adminRouter, limited, failed, resetLimiter, limiterSize } = await import('../src/admin.js');
+const { isPrivateIp, isAlwaysBlockedIp, checkSafeUrl, safeRequest, fetchMediaBuffer } = await import('../src/url-guard.js');
 const express = (await import('express')).default;
 const Long = (await import('long')).default;
 
@@ -44,7 +50,14 @@ before(async () => {
   await open({ driver: 'file' });
   hookServer = http.createServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { hooks.push({ url: req.url, body: JSON.parse(b) }); res.end('{}'); }); }).listen(0);
   const app = express();
-  app.use(express.json({ limit: '80mb' }));
+  app.set('trust proxy', parseTrustProxy());
+  const smallJson = express.json({ limit: '1mb' });
+  app.use((req, res, next) => {
+    if (/^\/message\/(sendMedia|sendWhatsAppAudio)\//.test(req.path)) return next();
+    return smallJson(req, res, next);
+  });
+  app.get('/health', (req, res) => res.json({ ok: true }));
+  app.use('/admin', adminRouter);
   app.use('/flxw', serverApi);
   app.use('/', router);
   server = app.listen(0);
@@ -166,3 +179,258 @@ test('/flxw/server sunucu bilgisi ve ayar', async () => {
   const bad = await fetch(base + '/flxw/server', { headers: { apikey: 'x' } });
   assert.equal(bad.status, 401);
 });
+
+test('güvenlik: /health yalnız ok döner, istek başlığı publicUrl yazmaz', async () => {
+  update({ publicUrl: '' });
+  const h = await fetch(base + '/health', { headers: { 'X-Forwarded-Host': 'evil.example.com', Host: 'evil.example.com' } });
+  const hj = await h.json();
+  assert.deepEqual(hj, { ok: true });
+  assert.equal(Object.keys(hj).join(','), 'ok');
+  assert.equal(cfg().publicUrl, '');
+  await fetch(base + '/instance/connectionState/flx', { headers: { apikey: 'wrong', 'X-Forwarded-Host': 'evil.example.com' } });
+  assert.equal(cfg().publicUrl, '');
+  await fetch(base + '/instance/connectionState/flx', { headers: { apikey: KEY(), 'X-Forwarded-Host': 'wa.example.org', 'X-Forwarded-Proto': 'https' } });
+  assert.equal(cfg().publicUrl, '');
+  await fetch(base + '/admin/api/state', { headers: { 'X-Forwarded-Host': 'evil.example.com' } });
+  assert.equal(cfg().publicUrl, '');
+  // Yapılandırılan özel/docker taban adresi SSRF listesine takılmaz.
+  const u = await call('POST', '/flxw/server', { publicUrl: 'http://172.17.0.2:8080' });
+  assert.equal(u.status, 200);
+  assert.equal(u.json.publicUrl, 'http://172.17.0.2:8080');
+  update({ publicUrl: '' });
+});
+
+test('güvenlik: ilk kurulum tek seferlik jeton ister, API key yetmez', async () => {
+  resetLimiter();
+  update({ adminHash: '' });
+  const token = setupToken();
+  assert.equal(token.length, 48);
+  const st0 = await (await fetch(base + '/admin/api/state')).json();
+  assert.deepEqual(Object.keys(st0).sort(), ['authed', 'lang', 'ok', 'setup', 'version']);
+  assert.equal(st0.setup, true);
+  assert.equal(st0.apiKey, undefined);
+
+  const noToken = await fetch(base + '/admin/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: 'strongpassword' }),
+  });
+  assert.equal(noToken.status, 401);
+  assert.equal(cfg().adminHash, '');
+
+  const withKey = await fetch(base + '/admin/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: KEY() },
+    body: JSON.stringify({ apiKey: KEY(), password: 'strongpassword' }),
+  });
+  assert.equal(withKey.status, 401);
+  assert.equal(cfg().adminHash, '');
+
+  const short = await fetch(base + '/admin/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ setupToken: token, password: 'short' }),
+  });
+  assert.equal(short.status, 400);
+  assert.equal(cfg().adminHash, '');
+
+  const ok = await fetch(base + '/admin/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ setupToken: token, password: 'strongpassword', lang: 'en' }),
+  });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { ok: true });
+  assert.ok(cfg().adminHash);
+  const again = await fetch(base + '/admin/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ setupToken: token, password: 'anotherpassword' }),
+  });
+  assert.equal(again.status, 400);
+
+  process.env.FLXW_SETUP_TOKEN = 'env-setup-token-value';
+  update({ adminHash: '' });
+  const envOk = await fetch(base + '/admin/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-setup-token': 'env-setup-token-value' },
+    body: JSON.stringify({ password: 'envtokenpass' }),
+  });
+  assert.equal(envOk.status, 200);
+  delete process.env.FLXW_SETUP_TOKEN;
+
+  process.env.FLXW_ADMIN_PASSWORD = 'envpassword123';
+  load();
+  const stEnv = await (await fetch(base + '/admin/api/state')).json();
+  assert.equal(stEnv.setup, false);
+  assert.equal(setupToken(), '');
+  const setupEnv = await fetch(base + '/admin/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ setupToken: token, password: 'anotherpassword' }),
+  });
+  assert.equal(setupEnv.status, 400);
+  delete process.env.FLXW_ADMIN_PASSWORD;
+  load();
+});
+
+test('güvenlik: trust proxy varsayılanı kapalı, true yok sayılır', () => {
+  assert.equal(parseTrustProxy(undefined), false);
+  assert.equal(parseTrustProxy(''), false);
+  assert.equal(parseTrustProxy('false'), false);
+  assert.equal(parseTrustProxy('true'), false);
+  assert.equal(parseTrustProxy('0'), false);
+  assert.equal(parseTrustProxy('1'), 1);
+  assert.equal(parseTrustProxy('2'), 2);
+  assert.equal(parseTrustProxy('loopback'), 'loopback');
+  assert.equal(parseTrustProxy('10.0.0.1, 172.16.0.0/12'), '10.0.0.1, 172.16.0.0/12');
+  assert.equal(parseTrustProxy('please'), false);
+});
+
+test('güvenlik: giriş sınırlayıcı IP sınırı, süre sonu, harita sınırı ve genel sınır', () => {
+  resetLimiter();
+  const t0 = 1000000;
+  for (let i = 0; i < 8; i++) {
+    assert.equal(limited('1.2.3.4', t0), false);
+    failed('1.2.3.4', t0);
+  }
+  assert.equal(limited('1.2.3.4', t0 + 1000), true);
+  // 10 dakika sonra sıfırlanır
+  assert.equal(limited('1.2.3.4', t0 + 600001), false);
+
+  // Harita boyutu 1024 ile sınırlıdır
+  resetLimiter();
+  for (let i = 0; i < 1200; i++) failed('10.0.' + Math.floor(i / 256) + '.' + (i % 256), t0);
+  assert.ok(limiterSize() <= 1024);
+  // Genel sınır (30 hata) farklı IP'lerden gelse bile devreye girer
+  assert.equal(limited('9.9.9.9', t0 + 100), true);
+  resetLimiter();
+});
+
+test('güvenlik: trust proxy kapalıyken sahte X-Forwarded-For sınırı aşamaz', async () => {
+  resetLimiter();
+  update({ adminHash: (await import('../src/config.js')).hashPassword('correctpass123') });
+  for (let i = 0; i < 8; i++) {
+    const r = await fetch(base + '/admin/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `203.0.113.${i}, 198.51.100.7` },
+      body: JSON.stringify({ password: 'wrong' }),
+    });
+    assert.equal(r.status, 401);
+  }
+  const blocked = await fetch(base + '/admin/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '203.0.113.99, 198.51.100.7' },
+    body: JSON.stringify({ password: 'wrong' }),
+  });
+  assert.equal(blocked.status, 429);
+  resetLimiter();
+});
+
+test('güvenlik: kimlik doğrulamasız büyük gövde reddedilir, doğrulanmış medya kabul edilir', async () => {
+  const big = 'A'.repeat(2 * 1024 * 1024);
+  // Normal uç 1 MB üstünü reddeder
+  const r1 = await fetch(base + '/message/sendText/flx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: KEY() },
+    body: JSON.stringify({ number: '905551112233', text: big }),
+  });
+  assert.equal(r1.status, 413);
+
+  // Medya ucunda kimlik doğrulaması büyük gövde ayrıştırılmadan önce çalışır
+  const r2 = await fetch(base + '/message/sendMedia/flx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: 'wrong' },
+    body: JSON.stringify({ number: '905551112233', mediatype: 'document', media: big }),
+  });
+  assert.equal(r2.status, 401);
+
+  // Doğrulanmış medya ucu 1 MB üstü base64 kabul eder
+  const r3 = await fetch(base + '/message/sendMedia/flx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: KEY() },
+    body: JSON.stringify({ number: '905551112233', mediatype: 'document', media: Buffer.alloc(1500000, 1).toString('base64'), fileName: 'a.bin' }),
+  });
+  assert.equal(r3.status, 201);
+});
+
+test('güvenlik: SSRF koruması özel IP, DNS, yönlendirme ve boyut sınırını denetler', async () => {
+  assert.equal(isPrivateIp('127.0.0.1'), true);
+  assert.equal(isPrivateIp('10.0.0.1'), true);
+  assert.equal(isPrivateIp('172.16.5.4'), true);
+  assert.equal(isPrivateIp('192.168.1.1'), true);
+  assert.equal(isPrivateIp('169.254.169.254'), true);
+  assert.equal(isPrivateIp('100.64.0.1'), true);
+  assert.equal(isPrivateIp('100.100.100.200'), true);
+  assert.equal(isPrivateIp('::1'), true);
+  assert.equal(isPrivateIp('::ffff:127.0.0.1'), true);
+  assert.equal(isPrivateIp('::ffff:7f00:1'), true);
+  assert.equal(isPrivateIp('fe80::1'), true);
+  assert.equal(isPrivateIp('fc00::1'), true);
+  assert.equal(isPrivateIp('fd00:ec2::254'), true);
+  assert.equal(isPrivateIp('93.184.216.34'), false);
+  assert.equal(isPrivateIp('2606:2800:220:1:248:1893:25c8:1946'), false);
+  assert.equal(isAlwaysBlockedIp('169.254.169.254'), true);
+  assert.equal(isAlwaysBlockedIp('fe80::1'), true);
+  assert.equal(isAlwaysBlockedIp('10.0.0.1'), false);
+  assert.equal(isAlwaysBlockedIp('127.0.0.1'), false);
+
+  delete process.env.FLXW_ALLOW_PRIVATE_URLS;
+  await assert.rejects(() => checkSafeUrl('http://127.0.0.1:8080/x'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://2130706433/x'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://localhost/x'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://169.254.169.254/latest/meta-data/'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://100.64.1.1/x'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://[::ffff:127.0.0.1]/x'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://172.17.0.2:8080/'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('ftp://93.184.216.34/x'), /Invalid url/);
+  await assert.rejects(
+    () => checkSafeUrl('http://public.example/x', { lookup: async () => [{ address: '10.1.2.3', family: 4 }, { address: '93.184.216.34', family: 4 }] }),
+    /Private or local URL/,
+  );
+  // Özel ağ bayrağı metadata ve link-local'i açmaz; RFC1918'i açar.
+  process.env.FLXW_ALLOW_PRIVATE_URLS = '1';
+  await assert.rejects(() => checkSafeUrl('http://169.254.169.254/latest/meta-data/'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://metadata.google.internal/'), /Private or local URL/);
+  await assert.rejects(() => checkSafeUrl('http://100.100.100.200/'), /Private or local URL/);
+  const docker = await checkSafeUrl('http://172.17.0.2:8080/');
+  assert.equal(docker.address, '172.17.0.2');
+  delete process.env.FLXW_ALLOW_PRIVATE_URLS;
+
+  const wBad = await call('POST', '/webhook/set/flx', { webhook: { enabled: true, url: 'http://127.0.0.1:9999/hook' } });
+  assert.equal(wBad.status, 400);
+  const mBad = await call('POST', '/message/sendMedia/flx', { number: '905551112233', mediatype: 'image', media: 'http://127.0.0.1:9999/a.png' });
+  assert.equal(mBad.status, 400);
+
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/redir') {
+      res.writeHead(302, { Location: 'http://169.254.169.254/secret' });
+      res.end();
+      return;
+    }
+    if (req.url === '/big') {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      res.end(Buffer.alloc(2048, 0x41));
+      return;
+    }
+    res.end('ok');
+  }).listen(0);
+  const port = srv.address().port;
+  try {
+    await assert.rejects(
+      () => safeRequest(`http://127.0.0.1:${port}/redir`, { allowPrivate: true }),
+      /Private or local URL/,
+    );
+    await assert.rejects(
+      () => safeRequest(`http://127.0.0.1:${port}/big`, { allowPrivate: true, maxBytes: 512 }),
+      /Response too large/,
+    );
+    process.env.FLXW_ALLOW_PRIVATE_URLS = '1';
+    const buf = await fetchMediaBuffer(`http://127.0.0.1:${port}/ok`);
+    assert.equal(buf.toString(), 'ok');
+  } finally {
+    srv.close();
+    process.env.FLXW_ALLOW_PRIVATE_URLS = '1';
+  }
+});
+

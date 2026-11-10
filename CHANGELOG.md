@@ -1,4 +1,15 @@
-# Değişiklikler
+# Changelog
+
+## 0.1.1 - 2026-11-10
+
+### Security
+
+- First-run admin setup requires a one-time token. The server prints a generated token in the log, or the operator sets `FLXW_SETUP_TOKEN`. The API key alone cannot claim the panel.
+- `trust proxy` is off unless `FLXW_TRUST_PROXY` is an explicit hop count or proxy list. The value `true` is ignored so `X-Forwarded-For` cannot bypass the login limit.
+- The public base URL comes only from `FLXW_PUBLIC_URL` or the settings API. Request `Host` and `X-Forwarded-*` headers are not stored.
+- JSON bodies are limited to 1 MB before authentication. `sendMedia` and `sendWhatsAppAudio` accept up to 80 MB only after a valid API key.
+- Caller-supplied media and webhook URLs are rejected when they point at private, loopback, link-local, or cloud-metadata addresses, including after DNS resolution and on redirects. The configured public base URL is not part of that check.
+- `GET /health` returns only `{ "ok": true }` to unauthenticated callers.
 
 ## 0.1.0
 

@@ -1,5 +1,6 @@
 import { get as cfg, EVOLUTION_COMPAT } from './config.js';
 import { log } from './log.js';
+import { safeRequest } from './url-guard.js';
 
 /*
  * Evolution biçiminde webhook: { event: 'messages.upsert', instance, data, date_time, sender, server_url, apikey }.
@@ -57,11 +58,12 @@ async function pump(inst, q) {
     const job = q.list[0];
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const r = await fetch(job.url, {
+        const r = await safeRequest(job.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'User-Agent': 'flx-wpapi' },
           body: JSON.stringify(job.body),
-          signal: AbortSignal.timeout(30000),
+          timeoutMs: 30000,
+          maxBytes: 1024 * 1024,
         });
         if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 429)) {
           if (!r.ok) log.warn({ inst, status: r.status, event: job.body.event }, 'webhook reddedildi');
@@ -71,8 +73,11 @@ async function pump(inst, q) {
         throw new Error(`HTTP ${r.status}`);
       } catch (e) {
         stat(inst, e.message);
-        if (attempt === 3) log.warn({ inst, err: e.message, event: job.body.event }, 'webhook gönderilemedi');
-        else await new Promise((ok) => setTimeout(ok, attempt * 2000));
+        if (attempt === 3 || e.status === 400) {
+          log.warn({ inst, err: e.message, event: job.body.event }, 'webhook gönderilemedi');
+          break;
+        }
+        await new Promise((ok) => setTimeout(ok, attempt * 2000));
       }
     }
     q.list.shift();
