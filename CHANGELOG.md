@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-11-10
+
+### Performance
+
+- `POST /chat/findChats` loads contact names with the chat list: one MySQL query, or one directory pass on the file store. The JSON fields and chat order are unchanged.
+- Stored messages are deleted at startup and every 6 hours. The default window is 45 days (`FLXW_MSG_KEEP_DAYS`, or `msgKeepDays` in config.json; 1–3650). The file store rewrites its log so expired rows and duplicate appends are dropped. Session keys and contacts are kept.
+
 ## 0.1.1 - 2026-11-10
 
 ### Security

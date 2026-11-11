@@ -11,8 +11,9 @@ process.env.FLXW_ALLOW_PRIVATE_URLS = '1';
 delete process.env.FLXW_TRUST_PROXY;
 delete process.env.FLXW_SETUP_TOKEN;
 delete process.env.FLXW_ADMIN_PASSWORD;
+delete process.env.FLXW_MSG_KEEP_DAYS;
 const { load, get: cfg, update, parseTrustProxy, setupToken } = await import('../src/config.js');
-const { open } = await import('../src/store.js');
+const { open, store, stopRetention } = await import('../src/store.js');
 const inst = await import('../src/instance.js');
 const { router } = await import('../src/evolution.js');
 const { router: serverApi } = await import('../src/server-api.js');
@@ -66,7 +67,7 @@ before(async () => {
   i.sock = fakeSock();
   i.state = 'open';
 });
-after(() => { server.close(); hookServer.close(); });
+after(() => { stopRetention(); server.close(); hookServer.close(); });
 
 test('kök sürüm 2.3+', async () => {
   const r = await call('GET', '/');
@@ -125,11 +126,38 @@ test('kendi gönderdiğimizin yankısı send.message', async () => {
 });
 
 test('findMessages / findChats', async () => {
+  const s = store();
+  await s.kvSet('contacts:flx', '905551112233@s.whatsapp.net', JSON.stringify({ name: 'Ali', pushName: 'AliPush', profilePicUrl: 'https://pps.example/a.jpg' }));
+  await inst.find('flx').saveMessage({ key: { remoteJid: '905559990000@s.whatsapp.net', fromMe: false, id: 'IN9' }, message: { conversation: 'yeni' }, messageTimestamp: 1790000300, pushName: 'Veli' });
   const r = await call('POST', '/chat/findMessages/flx', { where: { key: { remoteJid: '905551112233@s.whatsapp.net' } }, page: 1, offset: 10 });
   assert.ok(r.json.messages.records.length >= 2);
   assert.ok(r.json.messages.records[0].key.id);
-  const c = await call('POST', '/chat/findChats/flx', {});
-  assert.ok(c.json.some((x) => x.remoteJid === '905551112233@s.whatsapp.net'));
+  let gets = 0;
+  const orig = s.kvGet.bind(s);
+  s.kvGet = async (...args) => {
+    gets++;
+    return orig(...args);
+  };
+  try {
+    const c = await call('POST', '/chat/findChats/flx', {});
+    assert.equal(gets, 0);
+    const keys = ['id', 'remoteJid', 'pushName', 'profilePicUrl', 'updatedAt', 'instanceId'];
+    const ali = c.json.find((x) => x.remoteJid === '905551112233@s.whatsapp.net');
+    const veli = c.json.find((x) => x.remoteJid === '905559990000@s.whatsapp.net');
+    assert.deepEqual(Object.keys(ali), keys);
+    assert.deepEqual(Object.keys(veli), keys);
+    assert.equal(ali.id, ali.remoteJid);
+    assert.equal(ali.pushName, 'Ali');
+    assert.equal(ali.profilePicUrl, 'https://pps.example/a.jpg');
+    assert.equal(ali.instanceId, 'flx');
+    assert.equal(veli.pushName, 'Veli');
+    assert.equal(veli.profilePicUrl, null);
+    assert.ok(c.json.indexOf(veli) < c.json.indexOf(ali));
+    const row = (await s.chats('flx')).find((x) => x.jid === ali.remoteJid);
+    assert.equal(ali.updatedAt, new Date(row.ts).toISOString());
+  } finally {
+    s.kvGet = orig;
+  }
 });
 
 test('whatsappNumbers, profil, grup, okundu, tepki, düzenleme', async () => {
