@@ -60,9 +60,10 @@ pre{white-space:pre-wrap;word-break:break-all;max-height:320px;overflow:auto;bac
 const T = {
   tr: {
     title: 'Flux WPAPI', subtitle: 'WhatsApp köprüsü', logout: 'Çıkış',
-    setupTitle: 'İlk kurulum', setupText: 'Panel için bir yönetici parolası belirleyin (en az 8 karakter).',
+    setupTitle: 'İlk kurulum', setupText: 'Sunucu günlüğündeki tek seferlik kurulum jetonunu girin (veya FLXW_SETUP_TOKEN) ve panel parolasını belirleyin (en az 8 karakter).',
+    setupToken: 'Kurulum jetonu',
     password: 'Parola', save: 'Kaydet', login: 'Giriş', loginTitle: 'Yönetici girişi',
-    wrong: 'Parola yanlış.', short: 'Parola en az 8 karakter olmalı.', limit: 'Çok fazla deneme. 10 dakika sonra tekrar deneyin.',
+    wrong: 'Parola yanlış.', token: 'Kurulum jetonu geçersiz.', env: 'Bu ayar ortam değişkeniyle verildi; buradan değiştirilemez.', short: 'Parola en az 8 karakter olmalı.', limit: 'Çok fazla deneme. 10 dakika sonra tekrar deneyin.',
     status: 'Durum', server: 'Sunucu', baileys: 'Baileys', compat: 'Evolution uyumu', node: 'Node', uptime: 'Çalışma süresi', memory: 'Bellek', storage: 'Depolama', ffmpeg: 'Sesli mesaj çevirici',
     yes: 'Var', no: 'Yok', file: 'Dosya', mysql: 'MySQL',
     instances: 'Numaralar (instance)', newInst: 'Yeni instance adı', add: 'Ekle',
@@ -87,9 +88,10 @@ const T = {
   },
   en: {
     title: 'Flux WPAPI', subtitle: 'WhatsApp bridge', logout: 'Log out',
-    setupTitle: 'First setup', setupText: 'Choose an admin password for this panel (at least 8 characters).',
+    setupTitle: 'First setup', setupText: 'Enter the one-time setup token from the server log (or FLXW_SETUP_TOKEN) and choose an admin password (at least 8 characters).',
+    setupToken: 'Setup token',
     password: 'Password', save: 'Save', login: 'Log in', loginTitle: 'Admin login',
-    wrong: 'Wrong password.', short: 'Password must be at least 8 characters.', limit: 'Too many attempts. Try again in 10 minutes.',
+    wrong: 'Wrong password.', token: 'Invalid setup token.', env: 'This setting is provided via environment variable and cannot be changed here.', short: 'Password must be at least 8 characters.', limit: 'Too many attempts. Try again in 10 minutes.',
     status: 'Status', server: 'Server', baileys: 'Baileys', compat: 'Evolution compatibility', node: 'Node', uptime: 'Uptime', memory: 'Memory', storage: 'Storage', ffmpeg: 'Voice note converter',
     yes: 'Yes', no: 'No', file: 'File', mysql: 'MySQL',
     instances: 'Numbers (instances)', newInst: 'New instance name', add: 'Add',
@@ -140,13 +142,17 @@ function render() {
     clearInterval(poll); poll = null;
     const setup = S.setup;
     app.innerHTML = `<div class="center"><form class="card" id="f"><h2>${setup ? L.setupTitle : L.loginTitle}</h2>
-      ${setup ? `<p class="mute">${L.setupText}</p>` : ''}
-      <label>${L.password}</label><input type="password" name="password" autocomplete="${setup ? 'new-password' : 'current-password'}" required autofocus>
+      ${setup ? `<p class="mute">${L.setupText}</p><label>${L.setupToken}</label><input type="password" name="setupToken" autocomplete="off" required autofocus>` : ''}
+      <label>${L.password}</label><input type="password" name="password" autocomplete="${setup ? 'new-password' : 'current-password'}" required ${setup ? '' : 'autofocus'}>
       <p class="err" id="e"></p><button class="p" style="width:100%">${setup ? L.save : L.login}</button></form></div>`;
     $('#f').onsubmit = async (ev) => {
       ev.preventDefault();
-      try { await api(setup ? 'setup' : 'login', { password: ev.target.password.value, lang: navigator.language.startsWith('tr') ? 'tr' : 'en' }); load(); }
-      catch (e) { $('#e').textContent = e.message; }
+      try {
+        const body = { password: ev.target.password.value, lang: navigator.language.startsWith('tr') ? 'tr' : 'en' };
+        if (setup) body.setupToken = ev.target.setupToken.value;
+        await api(setup ? 'setup' : 'login', body);
+        load();
+      } catch (e) { $('#e').textContent = e.message; }
     };
     return;
   }

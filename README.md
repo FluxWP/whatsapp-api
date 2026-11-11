@@ -39,10 +39,14 @@ You set up the server once. After that, accounts, QR pairing, webhooks, the publ
      | `FLXW_DB_HOST`, `FLXW_DB_NAME`, `FLXW_DB_USER`, `FLXW_DB_PASSWORD` | MySQL. If set here, WordPress cannot change them; if not, enter them from WordPress. |
      | `FLXW_DATA_DIR` | Settings folder. Keep it **outside** the app folder (e.g. `/home/<user>/flxw-data`) so a redeploy does not delete it. |
      | `FLXW_PANEL` | `off` turns off the fallback panel (/admin). |
-     | `FLXW_PUBLIC_URL` | Public URL. If empty, it is learned from the first request. |
+     | `FLXW_PUBLIC_URL` | Public base URL of this app (keep-alive and connection details). Never taken from the request `Host` header. A private or Docker address is allowed. |
+     | `FLXW_SETUP_TOKEN` | Optional one-time token for the first admin password. If empty, a token is generated and printed once in the server log. |
+     | `FLXW_ADMIN_PASSWORD` | Optional admin password. When set, the first-run screen is closed and the panel password cannot be changed from the UI. |
+     | `FLXW_TRUST_PROXY` | Off by default. Set a hop count (`1`) or a proxy IP/CIDR list when the app sits behind a reverse proxy and the login limit should use the client IP. `true` is ignored. |
+     | `FLXW_ALLOW_PRIVATE_URLS` | `1` allows webhook and media fetches to RFC1918, loopback, and IPv6 unique-local addresses (same host or Docker). Link-local and cloud metadata stay blocked. Default off. |
 3. **WordPress:** Flux Contact › Connections › new WhatsApp connection, type **WhatsApp · Flux WPAPI**, URL `https://wa.example.org`, API key. Then add an account and scan the QR (WhatsApp › Linked devices › Link a device) or pair with a code sent to the phone number.
 
-Fallback panel: `https://wa.example.org/admin` (you set the password on first visit). Use it to see accounts when WordPress is unreachable.
+Fallback panel: `https://wa.example.org/admin`. On first visit, enter the one-time setup token from the server log (or `FLXW_SETUP_TOKEN`) and choose a password. The API key is shown only after that. Use the panel to see accounts when WordPress is unreachable.
 
 > If the same number is linked both in Evolution and here, both connections deliver every message. Test with a separate number, or turn the Evolution connection off while testing.
 
@@ -62,7 +66,8 @@ If it still falls asleep, point a free uptime monitor (UptimeRobot or similar) a
 ## Authentication
 
 - An `apikey` header, as in Evolution: the global API key or a per-instance token.
-- Panel: password + signed cookie; locks after 8 failed attempts in 10 minutes.
+- Panel: password + signed cookie. While no password is set, setup requires the one-time token (constant-time compare). The login limit is 8 failures per IP and 30 overall in 10 minutes. Client IP is taken from the socket unless `FLXW_TRUST_PROXY` is set.
+- Media and webhook URLs supplied by a caller are fetched only after an SSRF check. The app's own base URL is configuration, not a caller URL.
 
 ## Voice notes
 

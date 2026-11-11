@@ -4,6 +4,7 @@ import { store } from './store.js';
 import * as inst from './instance.js';
 import { toJid, plain } from './instance.js';
 import { EVENTS, hookOf } from './webhook.js';
+import { checkSafeUrl } from './url-guard.js';
 
 /*
  * Evolution API v2 uyumlu uçlar: Flux Chat'nin kullandıkları (includes/evolution.php, mirror.php).
@@ -11,6 +12,7 @@ import { EVENTS, hookOf } from './webhook.js';
  */
 
 export const router = express.Router();
+const largeJson = express.json({ limit: '80mb' });
 
 const fail = (res, status, message) =>
   res.status(status).json({ status, error: status === 404 ? 'Not Found' : status === 401 ? 'Unauthorized' : 'Bad Request', response: { message: [message] } });
@@ -63,6 +65,13 @@ router.post('/instance/create', auth, wrap(async (req, res) => {
   const b = req.body || {};
   const name = String(b.instanceName || '').trim();
   if (inst.exists(name)) return fail(res, 403, `This name "${name}" is already in use.`);
+  if (b.webhook?.url) {
+    try {
+      await checkSafeUrl(b.webhook.url);
+    } catch {
+      return fail(res, 400, 'Invalid url');
+    }
+  }
   const i = inst.create(name, { token: b.token || '' });
   if (b.webhook?.url) setHook(i.name, b.webhook);
   if (b.qrcode) {
@@ -170,7 +179,13 @@ function setHook(name, w) {
 router.post('/webhook/set/:instance', auth, wrap(async (req, res) => {
   const i = instanceOf(req);
   const w = req.body?.webhook || req.body || {};
-  if (w.url && !/^https?:\/\//i.test(w.url)) return fail(res, 400, 'Invalid url');
+  if (w.url) {
+    try {
+      await checkSafeUrl(w.url);
+    } catch {
+      return fail(res, 400, 'Invalid url');
+    }
+  }
   setHook(i.name, w);
   res.json(hookJson(i.name));
 }));
@@ -195,14 +210,14 @@ router.post('/message/sendText/:instance', auth, wrap(async (req, res) => {
   res.status(201).json(out);
 }));
 
-router.post('/message/sendMedia/:instance', auth, wrap(async (req, res) => {
+router.post('/message/sendMedia/:instance', auth, largeJson, wrap(async (req, res) => {
   const b = req.body || {};
   const i = instanceOf(req);
   const out = await i.send(b.number, await i.mediaContent(b), { quoted: b.quoted, delay: Number(b.delay) || 0 });
   res.status(201).json(out);
 }));
 
-router.post('/message/sendWhatsAppAudio/:instance', auth, wrap(async (req, res) => {
+router.post('/message/sendWhatsAppAudio/:instance', auth, largeJson, wrap(async (req, res) => {
   const b = req.body || {};
   const i = instanceOf(req);
   const out = await i.send(b.number, await i.audioContent(b.audio), { quoted: b.quoted, delay: Number(b.delay) || 0 });

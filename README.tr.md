@@ -39,10 +39,14 @@ Sunucu bir kez kurulur; sonrası (hesap ekleme, QR, webhook, dış adres, verita
      | `FLXW_DB_HOST`, `FLXW_DB_NAME`, `FLXW_DB_USER`, `FLXW_DB_PASSWORD` | MySQL. Verilirse WordPress'ten değiştirilemez. Vermezseniz WordPress'ten girilir. |
      | `FLXW_DATA_DIR` | Ayar klasörü; uygulama klasörünün **dışında** olsun (ör. `/home/<kullanıcı>/flxw-data`), yeniden kurulumda silinmesin. |
      | `FLXW_PANEL` | `off` ise yedek panel (/admin) kapanır. |
-     | `FLXW_PUBLIC_URL` | Dış adres. Vermezseniz ilk gelen istekten öğrenilir. |
+     | `FLXW_PUBLIC_URL` | Bu uygulamanın dış adresi (uyanık tutma ve bağlantı bilgisi). İstekteki `Host` başlığından alınmaz. Özel ağ veya Docker adresi verilebilir. |
+     | `FLXW_SETUP_TOKEN` | İlk yönetici parolası için isteğe bağlı tek seferlik jeton. Boşsa sunucu bir jeton üretir ve günlüğe bir kez yazar. |
+     | `FLXW_ADMIN_PASSWORD` | İsteğe bağlı yönetici parolası. Verilirse ilk kurulum ekranı kapalıdır; parola panelden değiştirilemez. |
+     | `FLXW_TRUST_PROXY` | Varsayılan kapalı. Uygulama ters vekil arkasındaysa ve giriş sınırı istemci IP'sine baksın isteniyorsa atlama sayısı (`1`) veya vekil IP/CIDR listesi. `true` yok sayılır. |
+     | `FLXW_ALLOW_PRIVATE_URLS` | `1` ise webhook ve medya indirmeleri RFC1918, loopback ve IPv6 unique-local adreslere gidebilir (aynı makine veya Docker). Link-local ve bulut metadata yine kapalıdır. Varsayılan kapalı. |
 3. **WordPress:** Flux Mail › Bağlantılar › yeni WhatsApp bağlantısı: tür **WhatsApp · Flux WPAPI**, adres `https://wa.example.org`, API key. Sonra hesap ekle › QR okut (WhatsApp › Bağlı cihazlar › Cihaz bağla) ya da telefon numarasıyla kod.
 
-Yedek panel: `https://wa.example.org/admin` (ilk açılışta parola belirlenir). WordPress'e ulaşılamadığında hesapları buradan da görebilirsiniz.
+Yedek panel: `https://wa.example.org/admin`. İlk açılışta sunucu günlüğündeki tek seferlik kurulum jetonu (veya `FLXW_SETUP_TOKEN`) ve bir parola istenir. API anahtarı ancak bundan sonra görünür. WordPress'e ulaşılamadığında hesapları buradan da görebilirsiniz.
 
 > Aynı numara hem Evolution'da hem burada bağlıysa iki bağlantı da aynı mesajı iletir. Deneme için ayrı bir numara kullanın ya da denerken Evolution bağlantısını kapatın.
 
@@ -62,7 +66,8 @@ Yine de uyuyorsa ücretsiz bir izleme servisi (UptimeRobot vb.) `https://wa.exam
 ## Kimlik doğrulama
 
 - Evolution'daki gibi `apikey` başlığı: paneldeki genel API key ya da instance'a özel token.
-- Panel: parola + imzalı çerez; 10 dakikada 8 hatalı denemede kilitlenir.
+- Panel: parola + imzalı çerez. Parola yokken kurulum, tek seferlik jetonu sabit süreli karşılaştırır. Giriş sınırı 10 dakikada IP başına 8, toplam 30 hatadır. İstemci IP'si soketten okunur; `FLXW_TRUST_PROXY` verilmedikçe `X-Forwarded-For` kullanılmaz.
+- Çağıranın verdiği medya ve webhook adresleri SSRF kontrolünden geçer. Uygulamanın kendi dış adresi yapılandırmadır, çağıran adresi değildir.
 
 ## Sesli mesaj
 

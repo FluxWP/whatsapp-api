@@ -5,6 +5,8 @@ import { log } from './log.js';
  * Hostinger Node uygulamaları trafik olmayınca durdurulur; WhatsApp bağlantısı da onunla kopar.
  * Uygulama dakikada bir kendi dış adresine istek atar: istek Hostinger'ın önündeki sunucudan geçtiği için
  * "trafik var" sayılır. Dış izleme (UptimeRobot vb.) de /health'e bakabilir.
+ * publicUrl yalnız yapılandırmadan gelir (FLXW_PUBLIC_URL veya panel). Docker/özel ağ adresi olabilir;
+ * bu istek SSRF korumasından geçmez. İstek başlığından adres öğrenilmez.
  */
 
 const state = { at: 0, ok: null, error: '' };

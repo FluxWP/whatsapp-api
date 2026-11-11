@@ -1,6 +1,6 @@
 {
   "name": "flx-whatsapp-api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Evolution API uyumlu, hafif WhatsApp köprüsü (Baileys). Hostinger Node.js web app'te çalışır.",
   "private": true,
   "type": "module",

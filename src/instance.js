@@ -14,6 +14,7 @@ import { useStoreAuthState } from './auth-state.js';
 import { emit, wantsBase64 } from './webhook.js';
 import { log, baileysLog } from './log.js';
 import { toOgg } from './audio.js';
+import { fetchMediaBuffer } from './url-guard.js';
 
 /*
  * Bir instance = bir WhatsApp numarası. Evolution'daki adıyla çağrılır (/message/sendText/{instance}).
@@ -361,7 +362,9 @@ export class Instance {
   }
 
   async mediaContent({ mediatype, mimetype, media, fileName, caption }) {
-    const src = /^https?:\/\//i.test(media || '') ? { url: media } : Buffer.from(String(media || '').replace(/^data:[^,]*,/, ''), 'base64');
+    const src = /^https?:\/\//i.test(media || '')
+      ? await fetchMediaBuffer(media)
+      : Buffer.from(String(media || '').replace(/^data:[^,]*,/, ''), 'base64');
     switch (mediatype) {
       case 'image':
         return { image: src, caption: caption || undefined, mimetype: mimetype || undefined };
@@ -377,7 +380,7 @@ export class Instance {
   /** Sesli mesaj: ogg/opus ise doğrudan, değilse (ffmpeg varsa) çevrilir; yoksa ses dosyası olarak gider. */
   async audioContent(audio) {
     let buf = /^https?:\/\//i.test(audio || '')
-      ? Buffer.from(await (await fetch(audio, { signal: AbortSignal.timeout(30000) })).arrayBuffer())
+      ? await fetchMediaBuffer(audio)
       : Buffer.from(String(audio || '').replace(/^data:[^,]*,/, ''), 'base64');
     const isOgg = buf.subarray(0, 4).toString() === 'OggS';
     if (!isOgg) {

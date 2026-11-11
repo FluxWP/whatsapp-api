@@ -8,7 +8,7 @@ Her istekte `apikey: <genel API key>` başlığı. Genel anahtar kurulumda `FLXW
 
 ## Sağlayıcıyı tanıma
 
-`GET /` → `{ version: "2.3.0", clientName: "flx-wpapi", flxwpapi: "0.1.0" }`. Evolution'da `clientName` yoktur ya da farklıdır; `flxwpapi` alanı varsa sunucu ayarları bölümü gösterilir.
+`GET /` → `{ version: "2.3.0", clientName: "flx-wpapi", flxwpapi: "0.1.1" }`. Evolution'da `clientName` yoktur ya da farklıdır; `flxwpapi` alanı varsa sunucu ayarları bölümü gösterilir.
 
 ## Hesap akışı
 
@@ -29,7 +29,7 @@ Her istekte `apikey: <genel API key>` başlığı. Genel anahtar kurulumda `FLXW
 
 - `GET /flxw/server` →
   `{ ok, server: "flx-wpapi", version, compat, baileys, node, uptime, memory, ffmpeg, publicUrl, keepAlive, lastKeepAlive (ISO ya da null), keepAliveState: { at, ok, error }, store: file|mysql, storeError, db: { driver, host, port, database, user, prefix, passwordSet, ok, error }, locked: { apiKey, db }, instances }`. Parola hiç dönmez.
-- `POST /flxw/server` `{ publicUrl?, keepAlive?, db?: { driver, host, port, user, password, database, prefix } }` → aynı gövde. `db` önce denenir, olmazsa `400 { ok: false, error }`. Boş parola = kayıtlı parola kalır. `locked.db` true ise (ortam değişkeniyle verilmiş) `409`. Depo değişince bağlantılar kapanır, hesaplar yeniden QR ister.
+- `POST /flxw/server` `{ publicUrl?, keepAlive?, db?: { driver, host, port, user, password, database, prefix } }` → aynı gövde. `db` önce denenir, olmazsa `400 { ok: false, error }`. Boş parola = kayıtlı parola kalır. `locked.db` true ise (ortam değişkeniyle verilmiş) `409`. Depo değişince bağlantılar kapanır, hesaplar yeniden QR ister. `publicUrl` yalnız bu uçtan (veya `FLXW_PUBLIC_URL`) yazılır; istek başlığından öğrenilmez. Docker içi bir taban adres (ör. `http://172.17.0.2:8080`) geçerlidir ve SSRF listesine takılmaz.
 - `POST /flxw/server/db-test` `{ db }` → `{ ok, error? }`.
 - `GET /flxw/logs?n=100` → son kayıtlar (pino JSON).
 
@@ -43,3 +43,5 @@ Her istekte `apikey: <genel API key>` başlığı. Genel anahtar kurulumda `FLXW
 
 - Polling hafif olsun (Hostinger IP rate-limit): QR ekranı açıkken 5 sn, liste ekranında 30 sn ya da elle yenile.
 - WP'den köprüye giden istekler sunucu tarafında (wp_remote_*); API key tarayıcıya verilmez.
+- Webhook adresi ve medya URL'si özel ağ, loopback, link-local veya metadata ise köprü reddeder. WordPress aynı Docker ağındaysa köprüde `FLXW_ALLOW_PRIVATE_URLS=1` gerekir. Link-local ve metadata bu bayrakla da açılmaz.
+- `GET /health` kimlik doğrulamasız yalnız `{ "ok": true }` döner. Sürüm ve instance durumu burada yoktur.
